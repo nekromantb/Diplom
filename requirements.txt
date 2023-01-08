@@ -1,0 +1,5 @@
+vk_api
+SQLAlchemy
+psycopg2
+requests
+pydantic
