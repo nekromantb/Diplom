@@ -41,7 +41,7 @@ Optional requirements:
 To start its need also VK group. Bot use group chat to give you results.
 To start work give "Начать" or "Start" message after bot activation
 
-Authentication data must be filled in auth_diplom.py fail in program directory in this format:
+Authentication data must be filled in auth_diplom.py file in program directory in this format:
 my_token: str = ""
 group_token: str = ""
 user_id: str = ""
