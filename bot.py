@@ -8,7 +8,7 @@ import sqlalchemy as sq
 from sqlalchemy.orm import sessionmaker
 from random import randrange
 import datetime
-
+import auth_diplom as ad
 
 class VKinder:
     URL_AUTH = "https://oauth.vk.com/authorize"
@@ -54,27 +54,27 @@ class VKinder:
         }
         return "?".join((self.URL_AUTH, urlencode(param)))
 
-    def _set_tokens(self,
-                    my_token: str,
-                    group_token: str,
-                    app_id,
-                    group_id
-                    ):
-        self.token = my_token
-        self.group_token = group_token
-        self.APP_ID = app_id
-        self.GROUP_ID = group_id
-
-    def _set_db_access(self,
-                       db_login: str,
-                       db_password: str,
-                       db_name: str,
-                       db_localhost: int
-                       ):
-        self.db_login = db_login
-        self.db_password = db_password
-        self.db_name = db_name
-        self.db_localhost = db_localhost
+    # def _set_tokens(self,
+    #                 my_token: str,
+    #                 group_token: str,
+    #                 app_id,
+    #                 group_id
+    #                 ):
+    #     self.token = my_token
+    #     self.group_token = group_token
+    #     self.APP_ID = app_id
+    #     self.GROUP_ID = group_id
+    #
+    # def _set_db_access(self,
+    #                    db_login: str,
+    #                    db_password: str,
+    #                    db_name: str,
+    #                    db_localhost: int
+    #                    ):
+    #     self.db_login = db_login
+    #     self.db_password = db_password
+    #     self.db_name = db_name
+    #     self.db_localhost = db_localhost
 
     def _database_auth(self):
         DSN = f"postgresql://{self.db_login}:{self.db_password}@localhost:{self.db_localhost}/{self.db_name}"
@@ -86,12 +86,14 @@ class VKinder:
         self.db_session = Session()
 
     def _authorisation(self):
-        print(f"Authorisation info needed. Token URL ==> {self._get_token()}")
-        my_token = input("Token to authorize: ")
-        app_id = input("Application ID: ")
-        group_token = input("Group token: ")
-        group_id = input("Group ID: ")
-        self._set_tokens(my_token, group_token, app_id, group_id)
+        # my_token = ad.my_token
+        # app_id = ad.app_id
+        # group_token = ad.group_token
+        # group_id = ad.group_id
+        # self._set_tokens(my_token, group_token, app_id, group_id)
+        if self.token == "":
+            print(f"Authorisation info needed. Token URL ==> {self._get_token()}")
+            return -1
         self.vk_session = vk_api.VkApi(token=self.token)
         try:
             self.vk_session.method("users.get")
@@ -99,11 +101,11 @@ class VKinder:
             print(error_msg)
             return -1
         self.vk_group_session = vk_api.VkApi(token=self.group_token)
-        db_login: str = input("Database (PostgresSQL) info needed: \nLogin: ")
-        db_password: str = input("Password: ")
-        db_name: str = input("Database name: ")
-        db_localhost: int = int(input("Database local port (localhost): "))
-        self._set_db_access(db_login, db_password, db_name, db_localhost)
+        # db_login: str = ad.db_login
+        # db_password: str = ad.db_password
+        # db_name: str = ad.db_name
+        # db_localhost: int = ad.db_localhost
+        # self._set_db_access(db_login, db_password, db_name, db_localhost)
         self._database_auth()
 
     def _set_user_id(self, user_id: str):
@@ -169,7 +171,8 @@ class VKinder:
                                                          self.user_info["relation"] == 6) else 6,
                                                  "age_from": int(self.user_info["age"]) - 5 if int(
                                                      self.user_info["age"]) - 5 >= 0 else 0,
-                                                 "age_to": int(self.user_info["age"]) + 5})
+                                                 "age_to": int(self.user_info["age"]) + 5,
+                                                 "has_photo": 1})
         return response_users["items"]
 
     def _rating_count(self, user):
@@ -188,9 +191,17 @@ class VKinder:
         return rating
 
     def _photos_url(self, photo_list, event):
-        for photo  in photo_list:
-            url = photo["sizes"][3]["url"]
-            self._write_msg(f"Фотография: {url}", event_msg=event.message)
+        attachment_photo = []
+        for photo in photo_list:
+            owner = photo["owner_id"]
+            id = photo["id"]
+            attachment_photo.append(f"photo{owner}_{id}")
+        message = ""
+        self.vk_group_session.method('messages.send',
+                                     {'message': message,
+                                      'peer_id': event.message.peer_id,
+                                      'random_id': randrange(10 ** 7),
+                                      'attachment': ','.join(attachment_photo)})
 
     def _user_info_output(self, user, event):
         self._write_msg(f"Фотографии пользователя {user.vk_id}:", event_msg=event.message)
@@ -220,19 +231,21 @@ class VKinder:
         users_list = self._get_users()
 
         for user in users_list:
-            db.add_user_db(self.db_session, user["id"], self._rating_count(user))
+            if not (user["is_closed"] == True and user["can_access_closed"] == False):
+                db.add_user_db(self.db_session, user["id"], self._rating_count(user))
 
         for user in self.db_session.query(dvu).filter(dvu.viewed == False).filter(dvu.rating > 7).all():
             self._user_info_output(user, event)
 
 
     def bot_dialogue(self):
-        self._authorisation()
+        if self._authorisation() == -1:
+            return "authorisation error!"
         input_data_flag = False
         longpoll = VkBotLongPoll(self.vk_group_session, self.GROUP_ID)
         for event in longpoll.listen():
             if event.type == VkBotEventType.MESSAGE_NEW:
-                if event.message.text == "Стоп!":
+                if event.message.text == "Стоп!" or event.message.text == "Stop!":
                     self._write_msg("До свидания!", event_msg=event.message)
                     break
                 else:
@@ -309,20 +322,42 @@ class VKinder:
                                 {"q": event.message.text[event.message.text.find(":") + 2:],
                                  "need_all": 1,
                                  "count": 1})
-                            self.user_info["city"] = response_city["items"][0]["id"]
+                            if response_city.get("items") is not None:
+                                if response_city["items"]:
+                                    self.user_info["city"] = response_city["items"][0]["id"]
+                                    if self.vk_session.method("database.getCitiesById",
+                                                                  {"city_ids": self.user_info["city"]}):
+                                        city = self.vk_session.method("database.getCitiesById",
+                                                                  {"city_ids": self.user_info["city"]})[0].get("title")
+                                    self._write_msg(f"Твой город определен: {city}", event_msg=event.message)
+                                else:
+                                    self._write_msg(f"Городов не нашлось, попробуй снова!", event_msg=event.message)
+                            else:
+                                self._write_msg(f"Ответ сервера не верный, попробуй снова!", event_msg=event.message)
                         if age_check != -1:
-                            if event.message.text[event.message.text.find(":") + 2:].isdidgit():
+                            if event.message.text[event.message.text.find(":") + 2:].isdidgit() and int(event.message.text[event.message.text.find(":") + 2:].isdidgit()) >= 0:
                                 self.user_info["age"] = int(event.message.text[
-                                                    event.message.text.find(":") + 2:])
+                                                            event.message.text.find(":") + 2:])
+                            else:
+                                self._write_msg(f"Возраст введен неверно, попробуй снова!", event_msg=event.message)
                         if sex_check != -1:
-                            self.user_info["sex"] = event.message.text[
-                                                       event.message.text.find(":") + 2:]
+                            if event.message.text[event.message.text.find(":") + 2:].isdidgit() and int(event.message.text[event.message.text.find(":") + 2:].isdidgit()) in range(1, 3):
+                                self.user_info["sex"] = event.message.text[
+                                                        event.message.text.find(":") + 2:]
+                            else:
+                                self._write_msg(f"Пол введен неверно, попробуй снова!", event_msg=event.message)
                         if relation_check != -1:
-                            self.user_info["relation"] = event.message.text[
-                                                         event.message.text.find(":") + 2:]
+                            if event.message.text[event.message.text.find(":") + 2:].isdidgit() and int(event.message.text[event.message.text.find(":") + 2:].isdidgit()) in range(1, 9):
+                                self.user_info["relation"] = event.message.text[
+                                                             event.message.text.find(":") + 2:]
+                            else:
+                                self._write_msg(f"Семейное положение введено неверно, попробуй снова!", event_msg=event.message)
                         if self._check_user_info() is None:
                             input_data_flag = False
                             self._bot_main_work(event)
+
+                        if city_check == -1 and age_check == -1 and sex_check == -1 and relation_check == -1:
+                            self._write_msg(f"Что-то пошло не так с форматом ввода, попробуй снова!", event_msg=event.message)
 
     # Tried to take token automatically (didn't make it after all)
     # def get_token_authorization_vk(self):
@@ -350,5 +385,13 @@ class VKinder:
 
 
 def bot_vkinder():
-    client = VKinder()
+    client = VKinder(my_token=ad.my_token,
+                     group_token=ad.group_token,
+                     user_id=ad.user_id,
+                     db_login=ad.db_login,
+                     db_password=ad.db_password,
+                     db_name=ad.db_name,
+                     db_localhost=ad.db_localhost,
+                     app_id=ad.app_id,
+                     group_id=ad.group_id)
     client.bot_dialogue()
