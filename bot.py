@@ -381,7 +381,8 @@ class VKinder:
     #     answer = driver.current_url
     #
     def __del__(self):
-        self.db_session.close()
+        if self.db_session:
+            self.db_session.close()
 
 
 def bot_vkinder():
